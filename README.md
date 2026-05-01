@@ -8,7 +8,7 @@ Supports QR + pairing code flows • Fully self-hostable
 
 <p align="center">
 <img src="https://img.shields.io/badge/Node.js-20+-green?style=flat-square" />
-<img src="https://img.shields.io/badge/Status-Stable-blue?style=flat-square" />
+<img src="https://img.shields.io/badge/Status-Alpha-blue?style=flat-square" />
 <img src="https://img.shields.io/badge/Security-Session%20Isolated-critical?style=flat-square" />
 </p>
 
@@ -142,7 +142,7 @@ This repo can be deployed anywhere:
 - **Hoyeb**
 - **Railway**
 - **Render**
-- *Vercel**
+- **Vercel**
 - **VPS**
 - **Local(PC)**
 
