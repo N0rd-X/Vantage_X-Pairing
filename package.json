@@ -1,0 +1,26 @@
+{
+  "name": "Vantage_X-Pairing",
+  "version": "0.0.1",
+  "description": "Vantage-X — WhatsApp Pairing Server",
+  "main": "index.js",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "author": "N0rd-X",
+  "license": "MIT",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.21",
+    "awesome-phonenumber": "7.2.0",
+    "body-parser": "^1.20.3",
+    "cors": "^2.8.5",
+    "express": "^4.21.2",
+    "express-rate-limit": "^7.4.1",
+    "pino": "9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}

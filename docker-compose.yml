@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  Vantage_X-Pairing:
+    build: .
+    container_name: Vantage_X-Pairing
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - PORT=8000
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+    volumes:
+      - ./sessions:/app/sessions
