@@ -21,7 +21,7 @@ const PORT = process.env.PORT || 8000;
 
 const allowedOrigins = process.env.ALLOWED_ORIGINS
     ? process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim())
-    : ['https://vantage-x-front.onrender.com'];
+    : ['http://localhost:3000', 'http://localhost:8080', 'http://127.0.0.1:5500'];
 
 app.use(cors({
     origin: (origin, callback) => {
