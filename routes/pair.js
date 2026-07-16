@@ -70,7 +70,7 @@ router.get('/', async (req, res) => {
 
     // Token-based session identity
     const sessionToken = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    const sessionDir   = `./sessions/pair_${sessionToken}`;
+    const sessionDir   = `./sessions/qr_${sessionToken}`;
     const resultPath   = `./sessions/result_${sessionToken}.json`;
 
     removeDir(sessionDir);
@@ -122,36 +122,45 @@ router.get('/', async (req, res) => {
                         }
 
                         const credsRaw = fs.readFileSync(credsPath, 'utf8');
-                        JSON.parse(credsRaw); // Validate JSON before encoding
+                        JSON.parse(credsRaw);
 
                         const sessionId = 'VANTAGE-X_' + Buffer.from(credsRaw).toString('base64');
                         const userJid   = jidNormalizedUser(num + '@s.whatsapp.net');
 
-                        // Deliver Session ID
+                        // Message 1 — instructions
                         await sock.sendMessage(userJid, {
                             text: [
                                 `✅ *VANTAGE-X MD — Session Created*`,
                                 ``,
                                 `Your bot is now paired and ready to deploy.`,
                                 ``,
-                                `🔑 *Your Session ID:*`,
-                                sessionId,
-                                ``,
                                 `📋 *Next steps:*`,
-                                `1. Copy the Session ID above`,
+                                `1. Tap *Copy Session* in the next message`,
                                 `2. Add it to your .env file as SESSION_ID`,
                                 `3. Run npm start`,
                                 ``,
-                                `📖 Docs: https://nordx.dev/docs`,
+                                `🗃 Repo: https://github.com/N0rd-X/VANTAGE_X-MD`,
                                 `🐛 Issues: https://github.com/N0rd-X/VANTAGE_X-MD/issues`,
                                 ``,
                                 `⚠️ *Never share your Session ID with anyone.*`
                             ].join('\n')
                         });
 
-                        console.log(`[PAIR] Session ID delivered to WhatsApp: ${sessionToken}`);
+                        // Message 2 — SESSION ID
+                        await sock.sendMessage(userJid, {
+                            text:    sessionId,
+                            footer:  '⚡ POWERED BY VANTAGE-X MD',
+                            buttons: [
+                                {
+                                    buttonId:   'copy_session',
+                                    buttonText: { displayText: '📋 Copy Session' },
+                                    type:       1
+                                }
+                            ],
+                            headerType: 1
+                        });
 
-                        // Write success result — /status polls for this file
+                        console.log(`[PAIR] Session ID delivered to WhatsApp: ${sessionToken}`);
                         writeResult(resultPath, {
                             success:   true,
                             createdAt: new Date().toISOString()
@@ -159,16 +168,12 @@ router.get('/', async (req, res) => {
 
                     } catch (error) {
                         console.error('[PAIR] Delivery error:', error.message);
-
-                        // Write failure result so /status can surface the error
                         writeResult(resultPath, {
                             success: false,
                             error:   error.message
                         });
                     } finally {
                         await sock.logout().catch(() => {});
-
-                        // Keep result file alive long enough for the frontend to poll it
                         setTimeout(() => {
                             removeDir(sessionDir);
                             try { fs.unlinkSync(resultPath); } catch {}
