@@ -14,6 +14,8 @@ import QRCode from 'qrcode';
 
 const router = express.Router();
 
+const CLEANUP_DELAY = 12 * 60 * 60 * 1000; // 12 hours
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function removeDir(dirPath) {
@@ -35,6 +37,17 @@ function ensureSessionsDir() {
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+/**
+ * GET /qr
+ *
+ * Flow:
+ *   1. Client calls /qr  →  gets { qr, sessionId, expiresIn }
+ *   2. Client displays QR image to user
+ *   3. Client polls GET /status/:sessionId every 3s
+ *   4. User scans QR in WhatsApp
+ *   5. /status returns { status: 'connected' }
+ *   6. Session ID is delivered to user's WhatsApp — never over HTTP
+ */
 router.get('/', async (req, res) => {
     const sessionToken = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const sessionDir   = `./sessions/qr_${sessionToken}`;
@@ -47,7 +60,7 @@ router.get('/', async (req, res) => {
     let qrSent           = false;
     let sessionDelivered = false;
 
-    // Timeout so requests don't hang indefinitely
+    // Timeout — clean up if nothing happens in 90s
     const timeoutHandle = setTimeout(() => {
         if (!responseSent) {
             responseSent = true;
@@ -85,7 +98,8 @@ router.get('/', async (req, res) => {
             let reconnectAttempts = 0;
             const maxReconnects = 3;
 
-            // Convert the QR code text from Baileys into a base64 image payload.
+            // ── QR handler ────────────────────────────────────────────────────
+
             const handleQR = async (qr) => {
                 if (qrSent || responseSent) return;
                 qrSent = true;
@@ -126,7 +140,8 @@ router.get('/', async (req, res) => {
                 }
             };
 
-            // Track connection life-cycle and write the result for polling.
+            // ── Connection handler ────────────────────────────────────────────
+
             const handleConnection = async (update) => {
                 const { connection, lastDisconnect, qr } = update;
 
@@ -150,30 +165,45 @@ router.get('/', async (req, res) => {
                         const credsRaw = fs.readFileSync(credsPath, 'utf8');
                         JSON.parse(credsRaw); // Validate JSON before encoding
 
-                        const sessionId = 'VANTAGE-X_' + Buffer.from(credsRaw).toString('base64');
-                        const meId = sock.authState.creds.me?.id;
+                        const sessionId = 'VANTAGE-X://' + Buffer.from(credsRaw).toString('base64');
+
+                        const meId    = sock.authState.creds.me?.id;
                         const userJid = meId ? jidNormalizedUser(meId) : null;
 
                         if (userJid) {
+                            // Message 1 — instructions (no session ID here)
                             await sock.sendMessage(userJid, {
                                 text: [
                                     `✅ *VANTAGE-X MD — Session Created*`,
                                     ``,
                                     `Your bot is now paired and ready to deploy.`,
                                     ``,
-                                    `🔑 *Your Session ID:*`,
-                                    sessionId,
-                                    ``,
                                     `📋 *Next steps:*`,
-                                    `1. Copy the Session ID above`,
+                                    `1. Tap *Copy Session* in the next message`,
                                     `2. Add it to your .env file as SESSION_ID`,
                                     `3. Run npm start`,
                                     ``,
                                     `📖 Docs: https://nordx.dev/docs`,
-                                    `🐛 Issues: https://github.com/N0rd-X/VANTAGE_X-MD/issues`,
+                                    `🐛 Issues: https://github.com/Nord-X/VANTAGE-X-MD/issues`,
                                     ``,
                                     `⚠️ *Never share your Session ID with anyone.*`
                                 ].join('\n')
+                            });
+
+                            // Message 2 — session ID with Copy Session button.
+                            // Falls back gracefully to plain text if buttons are filtered
+                            // by WhatsApp for personal accounts.
+                            await sock.sendMessage(userJid, {
+                                text:    sessionId,
+                                footer:  '⚡ POWERED BY VANTAGE-X MD',
+                                buttons: [
+                                    {
+                                        buttonId:   'copy_session',
+                                        buttonText: { displayText: '📋 Copy Session' },
+                                        type:       1
+                                    }
+                                ],
+                                headerType: 1
                             });
 
                             console.log(`[QR] Session ID delivered to WhatsApp: ${userJid}`);
@@ -193,13 +223,20 @@ router.get('/', async (req, res) => {
                             error:   err.message
                         }));
                     } finally {
+                        // Close the WebSocket without calling logout() — logout() deregisters
+                        // the device on WhatsApp's side and would invalidate the session the
+                        // user just received. We just want to drop the connection so their bot
+                        // can pick it up cleanly.
+                        sock.ev.removeAllListeners();
+                        sock.ws?.close();
+
+                        // Keep the session dir and result file for 12 hours so the status
+                        // endpoint keeps returning 'connected' and the user has time to deploy.
                         setTimeout(() => {
                             removeDir(sessionDir);
                             if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath);
                             console.log(`[QR] Cleaned up: ${sessionToken}`);
-                        }, 2 * 60 * 1000);
-
-                        await sock.logout().catch(() => {});
+                        }, CLEANUP_DELAY);
                     }
                 }
 
