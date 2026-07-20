@@ -14,6 +14,8 @@ import pn from 'awesome-phonenumber';
 
 const router = express.Router();
 
+const CLEANUP_DELAY = 12 * 60 * 60 * 1000; // 12 hours
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function removeDir(dirPath) {
@@ -43,6 +45,14 @@ function ensureSessionsDir() {
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
+/**
+ * GET /pair?number=XXXXXXXXXXX
+ *
+ * Returns: { code: "ABCD-EFGH", sessionId }
+ *
+ * The client polls GET /status/:sessionId to track delivery.
+ * The Session ID is delivered via WhatsApp only — never in an API response.
+ */
 router.get('/', async (req, res) => {
     let num = req.query.number;
 
@@ -52,10 +62,8 @@ router.get('/', async (req, res) => {
         });
     }
 
-    // Strip non-digit characters
     num = num.replace(/[^0-9]/g, '');
 
-    // Validate phone number using awesome-phonenumber
     const phone = pn('+' + num);
     if (!phone.isValid()) {
         return res.status(400).json({
@@ -63,12 +71,10 @@ router.get('/', async (req, res) => {
         });
     }
 
-    // Normalise to E.164 without the +
     num = phone.getNumber('e164').replace('+', '');
 
     ensureSessionsDir();
 
-    // Token-based session identity
     const sessionToken = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const sessionDir   = `./sessions/qr_${sessionToken}`;
     const resultPath   = `./sessions/result_${sessionToken}.json`;
@@ -122,12 +128,12 @@ router.get('/', async (req, res) => {
                         }
 
                         const credsRaw = fs.readFileSync(credsPath, 'utf8');
-                        JSON.parse(credsRaw);
+                        JSON.parse(credsRaw); // Validate JSON before encoding
 
-                        const sessionId = 'VANTAGE-X_' + Buffer.from(credsRaw).toString('base64');
+                        const sessionId = 'VANTAGE-X://' + Buffer.from(credsRaw).toString('base64');
                         const userJid   = jidNormalizedUser(num + '@s.whatsapp.net');
 
-                        // Message 1 — instructions
+                        // Message 1 — instructions (no session ID here)
                         await sock.sendMessage(userJid, {
                             text: [
                                 `✅ *VANTAGE-X MD — Session Created*`,
@@ -139,14 +145,16 @@ router.get('/', async (req, res) => {
                                 `2. Add it to your .env file as SESSION_ID`,
                                 `3. Run npm start`,
                                 ``,
-                                `🗃 Repo: https://github.com/N0rd-X/VANTAGE_X-MD`,
-                                `🐛 Issues: https://github.com/N0rd-X/VANTAGE_X-MD/issues`,
+                                `📖 Docs: https://nordx.dev/docs`,
+                                `🐛 Issues: https://github.com/Nord-X/VANTAGE-X-MD/issues`,
                                 ``,
                                 `⚠️ *Never share your Session ID with anyone.*`
                             ].join('\n')
                         });
 
-                        // Message 2 — SESSION ID
+                        // Message 2 — session ID with Copy Session button.
+                        // Falls back gracefully to plain text if buttons are filtered
+                        // by WhatsApp for personal accounts.
                         await sock.sendMessage(userJid, {
                             text:    sessionId,
                             footer:  '⚡ POWERED BY VANTAGE-X MD',
@@ -161,6 +169,8 @@ router.get('/', async (req, res) => {
                         });
 
                         console.log(`[PAIR] Session ID delivered to WhatsApp: ${sessionToken}`);
+
+                        // Write success result — /status polls for this file
                         writeResult(resultPath, {
                             success:   true,
                             createdAt: new Date().toISOString()
@@ -168,17 +178,26 @@ router.get('/', async (req, res) => {
 
                     } catch (error) {
                         console.error('[PAIR] Delivery error:', error.message);
+
                         writeResult(resultPath, {
                             success: false,
                             error:   error.message
                         });
                     } finally {
-                        await sock.logout().catch(() => {});
+                        // Close the WebSocket without calling logout() — logout() deregisters
+                        // the device on WhatsApp's side and would invalidate the session the
+                        // user just received. We just want to drop the connection so their bot
+                        // can pick it up cleanly.
+                        sock.ev.removeAllListeners();
+                        sock.ws?.close();
+
+                        // Keep the session dir and result file for 12 hours so the status
+                        // endpoint keeps returning 'connected' and the user has time to deploy.
                         setTimeout(() => {
                             removeDir(sessionDir);
                             try { fs.unlinkSync(resultPath); } catch {}
                             console.log(`[PAIR] Cleaned up: ${sessionToken}`);
-                        }, 2 * 60 * 1000);
+                        }, CLEANUP_DELAY);
                     }
                 }
 
@@ -209,7 +228,6 @@ router.get('/', async (req, res) => {
                     console.log(`[PAIR] Code generated: ${sessionToken}`);
 
                     if (!res.headersSent) {
-                        // Return sessionToken so the frontend knows which /status to poll
                         res.json({ code, sessionId: sessionToken });
                     }
                 } catch (error) {
