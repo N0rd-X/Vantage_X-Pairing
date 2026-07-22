@@ -37,17 +37,6 @@ function ensureSessionsDir() {
 
 // ── Route ─────────────────────────────────────────────────────────────────────
 
-/**
- * GET /qr
- *
- * Flow:
- *   1. Client calls /qr  →  gets { qr, sessionId, expiresIn }
- *   2. Client displays QR image to user
- *   3. Client polls GET /status/:sessionId every 3s
- *   4. User scans QR in WhatsApp
- *   5. /status returns { status: 'connected' }
- *   6. Session ID is delivered to user's WhatsApp — never over HTTP
- */
 router.get('/', async (req, res) => {
     const sessionToken = `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     const sessionDir   = `./sessions/qr_${sessionToken}`;
@@ -163,7 +152,7 @@ router.get('/', async (req, res) => {
                         }
 
                         const credsRaw = fs.readFileSync(credsPath, 'utf8');
-                        JSON.parse(credsRaw); // Validate JSON before encoding
+                        JSON.parse(credsRaw);
 
                         const sessionId = 'VANTAGE-X://' + Buffer.from(credsRaw).toString('base64');
 
@@ -171,7 +160,7 @@ router.get('/', async (req, res) => {
                         const userJid = meId ? jidNormalizedUser(meId) : null;
 
                         if (userJid) {
-                            // Message 1 — instructions (no session ID here)
+                            // Message 1 — instructions
                             await sock.sendMessage(userJid, {
                                 text: [
                                     `✅ *VANTAGE-X MD — Session Created*`,
@@ -179,20 +168,18 @@ router.get('/', async (req, res) => {
                                     `Your bot is now paired and ready to deploy.`,
                                     ``,
                                     `📋 *Next steps:*`,
-                                    `1. Tap *Copy Session* in the next message`,
+                                    `1. *Copy the Session* in the message below`,
                                     `2. Add it to your .env file as SESSION_ID`,
                                     `3. Run npm start`,
                                     ``,
-                                    `📖 Docs: https://nordx.dev/docs`,
-                                    `🐛 Issues: https://github.com/Nord-X/VANTAGE-X-MD/issues`,
+                                    `🗃️ Repo: https://github.com/N0rd-X/VANTAGE_X-MD`,
+                                    `🐛 Issues: https://github.com/Nord-X/VANTAGE_X-MD/issues`,
                                     ``,
                                     `⚠️ *Never share your Session ID with anyone.*`
                                 ].join('\n')
                             });
 
-                            // Message 2 — session ID with Copy Session button.
-                            // Falls back gracefully to plain text if buttons are filtered
-                            // by WhatsApp for personal accounts.
+                            // Message 2 — session ID
                             await sock.sendMessage(userJid, {
                                 text:    sessionId,
                                 footer:  '⚡ POWERED BY VANTAGE-X MD',
@@ -223,15 +210,9 @@ router.get('/', async (req, res) => {
                             error:   err.message
                         }));
                     } finally {
-                        // Close the WebSocket without calling logout() — logout() deregisters
-                        // the device on WhatsApp's side and would invalidate the session the
-                        // user just received. We just want to drop the connection so their bot
-                        // can pick it up cleanly.
                         sock.ev.removeAllListeners();
                         sock.ws?.close();
 
-                        // Keep the session dir and result file for 12 hours so the status
-                        // endpoint keeps returning 'connected' and the user has time to deploy.
                         setTimeout(() => {
                             removeDir(sessionDir);
                             if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath);
