@@ -180,18 +180,22 @@ router.get('/', async (req, res) => {
                             });
 
                             // Message 2 — session ID
-                            await sock.sendMessage(userJid, {
-                                text:    sessionId,
-                                footer:  '⚡ POWERED BY VANTAGE-X MD',
-                                buttons: [
-                                    {
-                                        buttonId:   'copy_session',
-                                        buttonText: { displayText: '📋 Copy Session' },
-                                        type:       1
-                                    }
-                                ],
-                                headerType: 1
-                            });
+                            try {
+                                await sock.sendMessage(userJid, {
+                                    text:    sessionId,
+                                    footer:  '⚡ POWERED BY VANTAGE-X MD',
+                                    buttons: [
+                                        {
+                                            buttonId:   'copy_session',
+                                            buttonText: { displayText: '📋 Copy Session' },
+                                            type:       1
+                                        }
+                                    ],
+                                    headerType: 1
+                                });
+                            } catch {
+                                await sock.sendMessage(userJid, { text: sessionId });
+                            }
 
                             console.log(`[QR] Session ID delivered to WhatsApp: ${userJid}`);
                         } else {
@@ -210,9 +214,6 @@ router.get('/', async (req, res) => {
                             error:   err.message
                         }));
                     } finally {
-                        sock.ev.removeAllListeners();
-                        sock.ws?.close();
-
                         setTimeout(() => {
                             removeDir(sessionDir);
                             if (fs.existsSync(resultPath)) fs.unlinkSync(resultPath);
@@ -261,3 +262,4 @@ router.get('/', async (req, res) => {
 });
 
 export default router;
+
