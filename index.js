@@ -5,16 +5,17 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { EventEmitter } from 'events';
 
-import pairRouter from './routes/pair.js';
-import qrRouter from './routes/qr.js';
+import pairRouter   from './routes/pair.js';
+import qrRouter     from './routes/qr.js';
 import statusRouter from './routes/status.js';
+import healthRouter from './routes/health.js';
 import { rateLimiter, pairLimiter } from './middleware/ratelimit.js';
 
 EventEmitter.defaultMaxListeners = 500;
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __dirname  = path.dirname(__filename);
 const PORT = process.env.PORT || 8000;
 
 // ── Middleware ────────────────────────────────────────────────────────────────
@@ -25,7 +26,6 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
 
 app.use(cors({
     origin: (origin, callback) => {
-        // Allow server-side or tool requests without an origin header.
         if (!origin) return callback(null, true);
         if (allowedOrigins.includes(origin)) return callback(null, true);
         callback(new Error(`Origin ${origin} not allowed by CORS`));
@@ -40,12 +40,14 @@ app.use(rateLimiter);
 
 // ── Routes ────────────────────────────────────────────────────────────────────
 
+// Root — same shape as /health for convenience
 app.get('/', (req, res) => {
     res.json({
         service: 'VANTAGE-X MD Pairing Server',
         version: '0.0.2',
-        status: 'online',
+        status:  'ok',
         endpoints: {
+            health: 'GET /health',
             qr:     'GET /qr',
             pair:   'GET /pair?number=XXXXXXXXXXX',
             status: 'GET /status/:sessionId'
@@ -53,9 +55,12 @@ app.get('/', (req, res) => {
     });
 });
 
+app.use('/health', healthRouter);
 app.use('/pair',   pairLimiter, pairRouter);
 app.use('/qr',     pairLimiter, qrRouter);
 app.use('/status', statusRouter);
+
+// ── Error handlers ────────────────────────────────────────────────────────────
 
 app.use((req, res) => {
     res.status(404).json({ error: 'Endpoint not found' });
@@ -70,6 +75,7 @@ app.use((err, req, res, next) => {
 });
 
 // ── Global exception handler ──────────────────────────────────────────────────
+
 process.on('uncaughtException', (err) => {
     const msg = String(err);
     const ignored = [
@@ -83,13 +89,14 @@ process.on('uncaughtException', (err) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
+
 app.listen(PORT, () => {
     console.log(`\n┌─────────────────────────────────────────┐`);
     console.log(`│       VANTAGE-X MD Pairing Server       │`);
     console.log(`│─────────────────────────────────────────│`);
     console.log(`│  Status  : Online                        │`);
     console.log(`│  Port    : ${PORT}                           │`);
-    console.log(`│  Docs    : http://localhost:${PORT}/         │`);
+    console.log(`│  Health  : http://localhost:${PORT}/health   │`);
     console.log(`└─────────────────────────────────────────┘\n`);
 });
 
